@@ -108,8 +108,18 @@ class DirectBackend:
     async def start(self, options: StartOptions) -> BrowserSession:
         display_handle = await self.display_manager.ensure(options.display_mode)
         headless = options.resolved_headless()
-        context = await self._launch_context(options, headless=headless)
-        page = await context.new_page()
+        context = None
+        try:
+            context = await self._launch_context(options, headless=headless)
+            page = await context.new_page()
+        except Exception:
+            try:
+                if context is not None:
+                    await context.close()
+            finally:
+                if display_handle is not None:
+                    await display_handle.close()
+            raise
         return BrowserSession(
             uuid.uuid4().hex,
             page,

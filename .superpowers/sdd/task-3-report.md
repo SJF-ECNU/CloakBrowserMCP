@@ -61,3 +61,19 @@
 - Focused browser verification:
   - `uv run --no-editable pytest tests/test_browser.py -q`
   - Result: `14 passed in 0.03s`
+
+### Remaining review fixes
+- Fixed `DirectBackend.start()` failure cleanup with the minimum scoped behavior requested by review:
+  - when launcher or `context.new_page()` raises, any created context is closed;
+  - any created virtual display handle is closed;
+  - the original exception is re-raised unchanged.
+- Added fake-only browser tests for the remaining review findings:
+  - `DirectBackend.start()` cleans up both a created context and display handle when `context.new_page()` fails;
+  - `CdpBackend.start()` stops the local Playwright client when `connect_over_cdp()` fails.
+- Preserved existing Task 2 timeout translation and prior CDP borrowed-resource ownership semantics by leaving those code paths unchanged.
+
+### Remaining review verification
+- RED before reinstall:
+  - `uv run --no-editable pytest tests/test_browser.py -q`
+  - Result: the new direct-backend cleanup test failed against the previously installed package, confirming the missing cleanup path.
+- Final verification is run from a refreshed non-editable install using the required commands from the task.

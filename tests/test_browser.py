@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from cloakbrowser_mcp.browser import BrowserManager, BrowserSession, CdpBackend
+from cloakbrowser_mcp.browser import BrowserManager, BrowserSession, CdpBackend, DirectBackend
 from cloakbrowser_mcp.errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, SessionNotFound
 from cloakbrowser_mcp.models import BackendMode, DisplayMode, StartOptions
 
@@ -62,6 +62,33 @@ class FakeBackend:
     async def start(self, options):
         self.options = options
         return self.session
+
+
+class FakeDisplayHandle(FakeClosable):
+    pass
+
+
+class FakeDisplayManager:
+    def __init__(self, handle=None):
+        self.handle = handle
+        self.display_modes = []
+
+    async def ensure(self, display_mode):
+        self.display_modes.append(display_mode)
+        return self.handle
+
+
+class FakeDirectContext(FakeClosable):
+    def __init__(self, *, fail_new_page=False):
+        super().__init__()
+        self.fail_new_page = fail_new_page
+        self.new_page_calls = 0
+
+    async def new_page(self):
+        self.new_page_calls += 1
+        if self.fail_new_page:
+            raise RuntimeError("page failed")
+        return FakePage()
 
 
 class FakeCdpContext(FakeClosable):
@@ -293,4 +320,40 @@ async def test_cdp_start_failure_stops_playwright_and_closes_created_context():
         await backend.start(StartOptions.from_values(backend="cdp", cdp_url="http://127.0.0.1:9222"))
 
     assert created_context.closed is True
+    assert playwright.stopped is True
+
+
+def fake_context_launcher(context):
+    async def _launcher(**kwargs):
+        return context
+
+    return _launcher
+
+
+@pytest.mark.asyncio
+async def test_direct_start_failure_closes_created_context_and_display_handle():
+    display_handle = FakeDisplayHandle()
+    display_manager = FakeDisplayManager(display_handle)
+    context = FakeDirectContext(fail_new_page=True)
+    backend = DirectBackend(
+        display_manager=display_manager,
+        context_launcher=fake_context_launcher(context),
+    )
+
+    with pytest.raises(RuntimeError, match="page failed"):
+        await backend.start(StartOptions.from_values(display_mode="virtual"))
+
+    assert display_manager.display_modes == [DisplayMode.VIRTUAL]
+    assert context.closed is True
+    assert display_handle.closed is True
+
+
+@pytest.mark.asyncio
+async def test_cdp_connect_failure_stops_playwright_client():
+    playwright = FakePlaywright(FakeChromium(connect_error=RuntimeError("connect failed")))
+    backend = CdpBackend(playwright_factory=fake_playwright_factory(playwright))
+
+    with pytest.raises(CdpConnectionFailed, match="127.0.0.1:9222"):
+        await backend.start(StartOptions.from_values(backend="cdp", cdp_url="http://127.0.0.1:9222"))
+
     assert playwright.stopped is True
