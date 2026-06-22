@@ -60,3 +60,32 @@
     - `/Users/shjf/Documents/CloakBrowserMCP/.worktrees/codex/cloakbrowser-mcp/src/cloakbrowser_mcp/__init__.py`
 - `uv run pytest tests/test_models.py tests/test_browser.py -q`
   - Output: `15 passed in 0.03s`
+
+## Controller Verification Update
+### Corrected root cause
+- Pinning uv to Python 3.12 was not sufficient by itself. Python startup in this macOS workspace skips hidden editable-install `.pth` files, so editable installs can still fail to expose the `src/` package.
+- The verified repository fix is to avoid source-tree import shims and use uv's non-editable install path for local verification.
+
+### Additional fix summary
+- Removed all shim-based workarounds from the final tree.
+- Added Python cache ignores to `.gitignore`.
+- Documented the local `uv --no-editable` verification requirement in the implementation plan.
+
+### Final verification
+- `uv run --no-editable python -c "import cloakbrowser_mcp; import pathlib; print(pathlib.Path(cloakbrowser_mcp.__file__).as_posix())"`
+  - Output: `/Users/shjf/Documents/CloakBrowserMCP/.worktrees/codex/cloakbrowser-mcp/.venv/lib/python3.12/site-packages/cloakbrowser_mcp/__init__.py`
+- `uv run --no-editable pytest tests/test_models.py tests/test_browser.py -q`
+  - Output: `15 passed in 0.02s`
+
+## Task 2 Review Fix
+### Files changed
+- `src/cloakbrowser_mcp/browser.py`
+- `tests/test_browser.py`
+- `.gitignore`
+- `docs/superpowers/plans/2026-06-22-cloakbrowser-mcp-implementation.md`
+- `.python-version` (deleted)
+
+### Test command and output
+- `uv run --no-editable pytest tests/test_models.py tests/test_browser.py -q`
+  - Output: `.................                                                        [100%]`
+  - Output: `17 passed in 0.04s`

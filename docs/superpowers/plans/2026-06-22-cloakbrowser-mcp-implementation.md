@@ -17,7 +17,6 @@
 - `cdp` mode connects to an existing CDP endpoint; it does not own long-running `cloakserve` lifecycle in the first version.
 - Use TDD: write the failing test, run it, then implement the minimal code.
 - Use `uv` for the isolated Python environment. Do not install dependencies with plain `pip`; use `uv sync --extra dev` and run commands through `uv run`.
-- In this macOS workspace, Python may skip hidden editable-install `.pth` files. After source edits, verify through `uv run --no-editable ...` or run `uv sync --extra dev --no-editable --reinstall-package cloakbrowser-mcp` before tests; do not add `PYTHONPATH` shims.
 - Keep the public MCP tool surface to the eight tools in the approved spec.
 - Return file paths for screenshots by default, not large base64 payloads.
 

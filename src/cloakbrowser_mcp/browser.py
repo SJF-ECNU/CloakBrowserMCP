@@ -5,6 +5,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
 from .errors import ElementNotFound, ScreenshotFailed
 from .models import OperationResult, ScreenshotResult, SnapshotResult
 
@@ -37,14 +39,14 @@ class BrowserSession:
     async def click(self, selector: str) -> OperationResult:
         try:
             await self.page.click(selector)
-        except TimeoutError as exc:
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
             raise ElementNotFound(f"Element not found for selector {selector!r}") from exc
         return OperationResult(ok=True, session_id=self.session_id)
 
     async def type_text(self, selector: str, text: str) -> OperationResult:
         try:
             await self.page.fill(selector, text)
-        except TimeoutError as exc:
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
             raise ElementNotFound(f"Element not found for selector {selector!r}") from exc
         return OperationResult(ok=True, session_id=self.session_id)
 

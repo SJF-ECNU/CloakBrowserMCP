@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from cloakbrowser_mcp.browser import BrowserSession
 from cloakbrowser_mcp.errors import ElementNotFound, ScreenshotFailed
@@ -11,6 +12,7 @@ class FakePage:
         self.url = "about:blank"
         self.actions = []
         self.fail_selector = False
+        self.selector_timeout_error = TimeoutError
         self.fail_screenshot = False
 
     async def goto(self, url, wait_until="load"):
@@ -22,12 +24,12 @@ class FakePage:
 
     async def click(self, selector):
         if self.fail_selector:
-            raise TimeoutError("selector timeout")
+            raise self.selector_timeout_error("selector timeout")
         self.actions.append(("click", selector))
 
     async def fill(self, selector, text):
         if self.fail_selector:
-            raise TimeoutError("selector timeout")
+            raise self.selector_timeout_error("selector timeout")
         self.actions.append(("fill", selector, text))
 
     async def evaluate(self, script):
@@ -73,6 +75,17 @@ async def test_session_click_wraps_selector_timeout(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_session_click_wraps_playwright_selector_timeout(tmp_path):
+    page = FakePage()
+    page.fail_selector = True
+    page.selector_timeout_error = PlaywrightTimeoutError
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    with pytest.raises(ElementNotFound, match="button.submit"):
+        await session.click("button.submit")
+
+
+@pytest.mark.asyncio
 async def test_session_type_uses_fill(tmp_path):
     page = FakePage()
     session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
@@ -81,6 +94,17 @@ async def test_session_type_uses_fill(tmp_path):
 
     assert result.to_dict()["ok"] is True
     assert ("fill", "#q", "hello") in page.actions
+
+
+@pytest.mark.asyncio
+async def test_session_type_wraps_playwright_selector_timeout(tmp_path):
+    page = FakePage()
+    page.fail_selector = True
+    page.selector_timeout_error = PlaywrightTimeoutError
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    with pytest.raises(ElementNotFound, match="#q"):
+        await session.type_text("#q", "hello")
 
 
 @pytest.mark.asyncio
