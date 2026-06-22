@@ -36,6 +36,23 @@ def test_cdp_display_mode_selects_cdp_backend():
     assert options.resolved_headless() is None
 
 
+@pytest.mark.parametrize(
+    ("backend", "display_mode"),
+    [
+        ("direct", "cdp"),
+        ("cdp", "headless"),
+        ("cdp", "virtual"),
+    ],
+)
+def test_explicit_backend_and_display_mode_conflicts_raise(backend, display_mode):
+    with pytest.raises(ValueError, match="conflict"):
+        StartOptions.from_values(
+            backend=backend,
+            display_mode=display_mode,
+            cdp_url="http://127.0.0.1:9222",
+        )
+
+
 def test_cdp_backend_uses_env_default_url(monkeypatch):
     monkeypatch.setenv("CLOAK_MCP_DEFAULT_CDP_URL", "http://127.0.0.1:9222")
 

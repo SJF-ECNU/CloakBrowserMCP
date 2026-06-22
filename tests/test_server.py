@@ -29,6 +29,7 @@ class FakeManager:
         self.started_options = None
         self.session = FakeSession()
         self.closed = []
+        self.close_all_calls = 0
 
     async def start(self, options):
         self.started_options = options
@@ -41,6 +42,9 @@ class FakeManager:
     async def close(self, session_id):
         self.closed.append(session_id)
         return OperationResult(ok=True, session_id=session_id)
+
+    async def close_all(self):
+        self.close_all_calls += 1
 
 
 @pytest.mark.asyncio
@@ -95,3 +99,23 @@ async def test_create_server_registers_only_approved_tools():
         "browser_screenshot",
         "browser_close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_server_closes_all_sessions_on_lifespan_exit():
+    manager = FakeManager()
+    server = create_server(manager)
+
+    async with server._mcp_server.lifespan(server._mcp_server):
+        assert manager.close_all_calls == 0
+
+    assert manager.close_all_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_create_server_marks_snapshot_read_only_but_not_screenshot():
+    server = create_server(FakeManager())
+    tools = {tool.name: tool for tool in await server.list_tools()}
+
+    assert tools["browser_snapshot"].annotations.readOnlyHint is True
+    assert tools["browser_screenshot"].annotations is None

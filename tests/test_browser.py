@@ -331,6 +331,24 @@ async def test_manager_close_removes_session(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_manager_close_all_closes_remaining_sessions_after_failure(tmp_path):
+    first_error = RuntimeError("first close failed")
+    first_context = FakeClosable(close_error=first_error)
+    second_context = FakeClosable()
+    manager = BrowserManager()
+    manager._sessions["s1"] = BrowserSession("s1", FakePage(), first_context, None, tmp_path, "direct", "headless")
+    manager._sessions["s2"] = BrowserSession("s2", FakePage(), second_context, None, tmp_path, "direct", "headless")
+
+    with pytest.raises(RuntimeError, match="first close failed") as excinfo:
+        await manager.close_all()
+
+    assert excinfo.value is first_error
+    assert first_context.close_calls == 1
+    assert second_context.close_calls == 1
+    assert manager._sessions == {}
+
+
+@pytest.mark.asyncio
 async def test_cdp_session_close_does_not_close_borrowed_context_or_browser(tmp_path):
     existing_page = FakePage()
     existing_context = FakeCdpContext(pages=[existing_page])

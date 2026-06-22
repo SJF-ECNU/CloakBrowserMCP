@@ -254,5 +254,14 @@ class BrowserManager:
         return OperationResult(ok=True, session_id=session_id)
 
     async def close_all(self) -> None:
-        for session_id in list(self._sessions):
-            await self.close(session_id)
+        first_error = None
+        for session_id, session in list(self._sessions.items()):
+            try:
+                await session.close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+            finally:
+                self._sessions.pop(session_id, None)
+        if first_error is not None:
+            raise first_error

@@ -71,8 +71,17 @@ class StartOptions:
     ) -> "StartOptions":
         default_display = DisplayMode(os.environ.get("CLOAK_MCP_DEFAULT_DISPLAY_MODE", DisplayMode.HEADLESS.value))
         resolved_display = _enum_value(DisplayMode, display_mode, default_display)
-        default_backend = BackendMode.CDP if resolved_display is DisplayMode.CDP else BackendMode.DIRECT
-        resolved_backend = _enum_value(BackendMode, backend, default_backend)
+        resolved_backend = _enum_value(BackendMode, backend, BackendMode.DIRECT)
+
+        if backend is not None and display_mode is not None:
+            if resolved_backend is BackendMode.DIRECT and resolved_display is DisplayMode.CDP:
+                raise ValueError("backend/display_mode conflict: direct backend cannot use cdp display mode")
+            if resolved_backend is BackendMode.CDP and resolved_display is not DisplayMode.CDP:
+                raise ValueError("backend/display_mode conflict: cdp backend requires display_mode='cdp'")
+
+        if resolved_display is DisplayMode.CDP:
+            resolved_backend = BackendMode.CDP
+
         if resolved_backend is BackendMode.CDP:
             resolved_display = DisplayMode.CDP
             cdp_url = cdp_url or os.environ.get("CLOAK_MCP_DEFAULT_CDP_URL")

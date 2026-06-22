@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -62,9 +63,21 @@ class ToolHandlers:
         return (await self.manager.close(session_id)).to_dict()
 
 
+def _server_lifespan(manager: BrowserManager):
+    @asynccontextmanager
+    async def _lifespan(_: FastMCP):
+        try:
+            yield
+        finally:
+            await manager.close_all()
+
+    return _lifespan
+
+
 def create_server(manager: BrowserManager | None = None) -> FastMCP:
-    handlers = ToolHandlers(manager or BrowserManager())
-    mcp = FastMCP("CloakBrowser MCP")
+    manager = manager or BrowserManager()
+    handlers = ToolHandlers(manager)
+    mcp = FastMCP("CloakBrowser MCP", lifespan=_server_lifespan(manager))
 
     mcp.tool(description="Start a CloakBrowser session. Default mode is direct headless Linux browsing.")(
         handlers.browser_start
@@ -79,7 +92,6 @@ def create_server(manager: BrowserManager | None = None) -> FastMCP:
     )(handlers.browser_snapshot)
     mcp.tool(
         description="Capture a PNG screenshot and return its filesystem path.",
-        annotations=ToolAnnotations(readOnlyHint=True),
     )(handlers.browser_screenshot)
     mcp.tool(description="Close a browser session and release resources.")(handlers.browser_close)
     return mcp
