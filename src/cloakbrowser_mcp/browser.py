@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import uuid
 from pathlib import Path
@@ -7,8 +8,9 @@ from typing import Any
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from .errors import ElementNotFound, ScreenshotFailed
-from .models import OperationResult, ScreenshotResult, SnapshotResult
+from .display import VirtualDisplayManager
+from .errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, SessionNotFound
+from .models import BackendMode, OperationResult, ScreenshotResult, SnapshotResult, StartOptions, StartResult
 
 
 class BrowserSession:
@@ -21,6 +23,8 @@ class BrowserSession:
         screenshot_dir: str | Path | None,
         backend: str,
         display_mode: str,
+        display_handle: Any | None = None,
+        playwright: Any | None = None,
     ) -> None:
         self.session_id = session_id
         self.page = page
@@ -28,7 +32,13 @@ class BrowserSession:
         self.browser = browser
         self.backend = backend
         self.display_mode = display_mode
-        self.screenshot_dir = Path(screenshot_dir or Path(tempfile.gettempdir()) / "cloakbrowser-mcp")
+        self.display_handle = display_handle
+        self.playwright = playwright
+        self.screenshot_dir = Path(
+            screenshot_dir
+            or os.environ.get("CLOAK_MCP_SCREENSHOT_DIR")
+            or Path(tempfile.gettempdir()) / "cloakbrowser-mcp"
+        )
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
 
     async def navigate(self, url: str, wait_until: str = "load") -> dict[str, str]:
@@ -67,7 +77,130 @@ class BrowserSession:
         return ScreenshotResult(session_id=self.session_id, path=str(path))
 
     async def close(self) -> None:
-        if self.context is not None:
-            await self.context.close()
-        if self.browser is not None:
-            await self.browser.close()
+        try:
+            if self.context is not None:
+                await self.context.close()
+            if self.browser is not None:
+                await self.browser.close()
+            if self.playwright is not None:
+                await self.playwright.stop()
+        finally:
+            if self.display_handle is not None:
+                await self.display_handle.close()
+
+
+class DirectBackend:
+    def __init__(
+        self,
+        *,
+        display_manager: VirtualDisplayManager | None = None,
+        context_launcher: Any | None = None,
+        persistent_context_launcher: Any | None = None,
+    ) -> None:
+        self.display_manager = display_manager or VirtualDisplayManager()
+        self.context_launcher = context_launcher
+        self.persistent_context_launcher = persistent_context_launcher
+
+    async def start(self, options: StartOptions) -> BrowserSession:
+        display_handle = await self.display_manager.ensure(options.display_mode)
+        headless = options.resolved_headless()
+        context = await self._launch_context(options, headless=headless)
+        page = await context.new_page()
+        return BrowserSession(
+            uuid.uuid4().hex,
+            page,
+            context,
+            None,
+            None,
+            options.backend.value,
+            options.display_mode.value,
+            display_handle,
+        )
+
+    async def _launch_context(self, options: StartOptions, *, headless: bool | None) -> Any:
+        if options.profile_dir:
+            launcher = self.persistent_context_launcher
+            if launcher is None:
+                from cloakbrowser import launch_persistent_context_async
+
+                launcher = launch_persistent_context_async
+            return await launcher(
+                str(options.profile_dir),
+                headless=headless if headless is not None else True,
+                proxy=options.proxy,
+                locale=options.locale,
+                timezone=options.timezone,
+                humanize=options.humanize,
+            )
+        launcher = self.context_launcher
+        if launcher is None:
+            from cloakbrowser import launch_context_async
+
+            launcher = launch_context_async
+        return await launcher(
+            headless=headless if headless is not None else True,
+            proxy=options.proxy,
+            locale=options.locale,
+            timezone=options.timezone,
+            humanize=options.humanize,
+        )
+
+
+class CdpBackend:
+    def __init__(self, *, playwright_factory: Any | None = None) -> None:
+        self.playwright_factory = playwright_factory
+
+    async def start(self, options: StartOptions) -> BrowserSession:
+        cdp_url = options.resolved_cdp_url()
+        try:
+            playwright = await self._start_playwright()
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            page = context.pages[0] if context.pages else await context.new_page()
+        except Exception as exc:
+            raise CdpConnectionFailed(f"Failed to connect to CDP endpoint {cdp_url!r}") from exc
+        return BrowserSession(uuid.uuid4().hex, page, context, browser, None, "cdp", "cdp", playwright=playwright)
+
+    async def _start_playwright(self) -> Any:
+        if self.playwright_factory is not None:
+            return await self.playwright_factory()
+        from playwright.async_api import async_playwright
+
+        return await async_playwright().start()
+
+
+class BrowserManager:
+    def __init__(
+        self,
+        *,
+        direct_backend: Any | None = None,
+        cdp_backend: Any | None = None,
+    ) -> None:
+        self._direct_backend = direct_backend or DirectBackend()
+        self._cdp_backend = cdp_backend or CdpBackend()
+        self._sessions: dict[str, BrowserSession] = {}
+
+    async def start(self, options: StartOptions) -> StartResult:
+        backend = self._cdp_backend if options.backend is BackendMode.CDP else self._direct_backend
+        session = await backend.start(options)
+        self._sessions[session.session_id] = session
+        return StartResult(session_id=session.session_id, backend=session.backend, display_mode=session.display_mode)
+
+    def get(self, session_id: str) -> BrowserSession:
+        try:
+            return self._sessions[session_id]
+        except KeyError as exc:
+            available = ", ".join(sorted(self._sessions)) or "none"
+            raise SessionNotFound(f"Unknown session {session_id!r}; available sessions: {available}") from exc
+
+    async def close(self, session_id: str) -> OperationResult:
+        session = self.get(session_id)
+        try:
+            await session.close()
+        finally:
+            self._sessions.pop(session_id, None)
+        return OperationResult(ok=True, session_id=session_id)
+
+    async def close_all(self) -> None:
+        for session_id in list(self._sessions):
+            await self.close(session_id)

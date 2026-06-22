@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from cloakbrowser_mcp.browser import BrowserSession
-from cloakbrowser_mcp.errors import ElementNotFound, ScreenshotFailed
+from cloakbrowser_mcp.browser import BrowserManager, BrowserSession
+from cloakbrowser_mcp.errors import ElementNotFound, ScreenshotFailed, SessionNotFound
+from cloakbrowser_mcp.models import BackendMode, DisplayMode, StartOptions
 
 
 class FakePage:
@@ -51,6 +52,16 @@ class FakeClosable:
 
     async def close(self):
         self.closed = True
+
+
+class FakeBackend:
+    def __init__(self, session):
+        self.session = session
+        self.options = None
+
+    async def start(self, options):
+        self.options = options
+        return self.session
 
 
 @pytest.mark.asyncio
@@ -155,3 +166,45 @@ async def test_session_close_closes_context_then_browser(tmp_path):
 
     assert context.closed is True
     assert browser.closed is True
+
+
+@pytest.mark.asyncio
+async def test_manager_starts_session_with_selected_backend(tmp_path):
+    session = BrowserSession("fixed", FakePage(), FakeClosable(), None, tmp_path, "direct", "headless")
+    direct = FakeBackend(session)
+    manager = BrowserManager(direct_backend=direct, cdp_backend=FakeBackend(session))
+
+    result = await manager.start(StartOptions.from_values())
+
+    assert result.session_id == "fixed"
+    assert result.backend == "direct"
+    assert manager.get("fixed") is session
+    assert direct.options.backend is BackendMode.DIRECT
+
+
+@pytest.mark.asyncio
+async def test_manager_uses_cdp_backend(tmp_path):
+    session = BrowserSession("cdp1", FakePage(), FakeClosable(), None, tmp_path, "cdp", "cdp")
+    cdp = FakeBackend(session)
+    manager = BrowserManager(direct_backend=FakeBackend(session), cdp_backend=cdp)
+
+    result = await manager.start(StartOptions.from_values(backend="cdp", cdp_url="http://127.0.0.1:9222"))
+
+    assert result.session_id == "cdp1"
+    assert result.backend == "cdp"
+    assert cdp.options.display_mode is DisplayMode.CDP
+
+
+@pytest.mark.asyncio
+async def test_manager_close_removes_session(tmp_path):
+    context = FakeClosable()
+    session = BrowserSession("s1", FakePage(), context, None, tmp_path, "direct", "headless")
+    manager = BrowserManager(direct_backend=FakeBackend(session), cdp_backend=FakeBackend(session))
+    await manager.start(StartOptions.from_values())
+
+    result = await manager.close("s1")
+
+    assert result.ok is True
+    assert context.closed is True
+    with pytest.raises(SessionNotFound):
+        manager.get("s1")
