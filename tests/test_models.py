@@ -13,6 +13,13 @@ def test_default_start_options_are_direct_headless():
     assert options.resolved_headless() is True
 
 
+def test_explicit_headless_false_in_direct_mode():
+    options = StartOptions.from_values(headless=False)
+
+    assert options.backend is BackendMode.DIRECT
+    assert options.resolved_headless() is False
+
+
 def test_virtual_mode_uses_direct_backend_and_headed_browser():
     options = StartOptions.from_values(display_mode="virtual")
 

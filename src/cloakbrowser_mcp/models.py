@@ -96,6 +96,8 @@ class StartOptions:
             return None
         if self.display_mode is DisplayMode.VIRTUAL:
             return False
+        if self.headless is not None:
+            return self.headless
         return True
 
     def resolved_cdp_url(self) -> str | None:
