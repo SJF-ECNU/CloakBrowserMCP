@@ -13,6 +13,19 @@ from .errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, Sess
 from .models import BackendMode, OperationResult, ScreenshotResult, SnapshotResult, StartOptions, StartResult
 
 
+async def _run_cleanup_steps(*steps: tuple[bool, Any]) -> Exception | None:
+    first_error = None
+    for should_run, closer in steps:
+        if not should_run:
+            continue
+        try:
+            await closer()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    return first_error
+
+
 class BrowserSession:
     def __init__(
         self,
@@ -81,16 +94,17 @@ class BrowserSession:
         return ScreenshotResult(session_id=self.session_id, path=str(path))
 
     async def close(self) -> None:
-        try:
-            if self.owns_context and self.context is not None:
-                await self.context.close()
-            if self.owns_browser and self.browser is not None:
-                await self.browser.close()
-            if self.playwright is not None:
-                await self.playwright.stop()
-        finally:
-            if self.display_handle is not None:
-                await self.display_handle.close()
+        cleanup_error = await _run_cleanup_steps(
+            (self.owns_context and self.context is not None, self.context.close if self.context is not None else None),
+            (self.owns_browser and self.browser is not None, self.browser.close if self.browser is not None else None),
+            (self.playwright is not None, self.playwright.stop if self.playwright is not None else None),
+            (
+                self.display_handle is not None,
+                self.display_handle.close if self.display_handle is not None else None,
+            ),
+        )
+        if cleanup_error is not None:
+            raise cleanup_error
 
 
 class DirectBackend:
@@ -113,12 +127,10 @@ class DirectBackend:
             context = await self._launch_context(options, headless=headless)
             page = await context.new_page()
         except Exception:
-            try:
-                if context is not None:
-                    await context.close()
-            finally:
-                if display_handle is not None:
-                    await display_handle.close()
+            await _run_cleanup_steps(
+                (context is not None, context.close if context is not None else None),
+                (display_handle is not None, display_handle.close if display_handle is not None else None),
+            )
             raise
         return BrowserSession(
             uuid.uuid4().hex,
@@ -203,12 +215,10 @@ class CdpBackend:
         return await async_playwright().start()
 
     async def _cleanup_failed_start(self, *, playwright: Any | None, context: Any | None, owns_context: bool) -> None:
-        try:
-            if owns_context and context is not None:
-                await context.close()
-        finally:
-            if playwright is not None:
-                await playwright.stop()
+        await _run_cleanup_steps(
+            (owns_context and context is not None, context.close if context is not None else None),
+            (playwright is not None, playwright.stop if playwright is not None else None),
+        )
 
 
 class BrowserManager:

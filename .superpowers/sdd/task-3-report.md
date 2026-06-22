@@ -77,3 +77,23 @@
   - `uv run --no-editable pytest tests/test_browser.py -q`
   - Result: the new direct-backend cleanup test failed against the previously installed package, confirming the missing cleanup path.
 - Final verification is run from a refreshed non-editable install using the required commands from the task.
+
+### Final lifecycle review fix
+- Fixed `BrowserSession.close()` to perform best-effort teardown across all applicable resources in order:
+  - owned context
+  - owned browser
+  - local Playwright client
+  - display handle
+- The close path now preserves the first cleanup exception and re-raises it only after all applicable cleanup steps have been attempted.
+- Tightened startup failure cleanup so cleanup errors do not mask the original startup failure:
+  - `DirectBackend.start()` now best-effort closes any created context and virtual display handle, then re-raises the original startup exception unchanged.
+  - `CdpBackend._cleanup_failed_start()` now best-effort closes any owned created context and stops the local Playwright client without overriding the original CDP startup failure.
+- Preserved existing behavior outside the reviewed lifecycle paths:
+  - Task 2 timeout translation in `click()` / `type_text()` remains unchanged.
+  - Borrowed CDP contexts and browsers are still not closed by `BrowserSession.close()`.
+
+### Final lifecycle review tests
+- Added fake-only regression coverage in `tests/test_browser.py` for:
+  - `BrowserSession.close()` continuing to close browser, stop Playwright, and close display handle even when owned context close raises, while re-raising that first cleanup exception.
+  - `DirectBackend.start()` preserving the original `new_page()` failure when both context cleanup and display cleanup also raise.
+  - `CdpBackend.start()` preserving the original CDP startup failure when both owned context cleanup and Playwright shutdown raise.

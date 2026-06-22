@@ -47,11 +47,16 @@ class FakePage:
 
 
 class FakeClosable:
-    def __init__(self):
+    def __init__(self, *, close_error=None):
         self.closed = False
+        self.close_calls = 0
+        self.close_error = close_error
 
     async def close(self):
+        self.close_calls += 1
         self.closed = True
+        if self.close_error is not None:
+            raise self.close_error
 
 
 class FakeBackend:
@@ -130,12 +135,17 @@ class FakeChromium:
 
 
 class FakePlaywright:
-    def __init__(self, chromium):
+    def __init__(self, chromium, *, stop_error=None):
         self.chromium = chromium
         self.stopped = False
+        self.stop_calls = 0
+        self.stop_error = stop_error
 
     async def stop(self):
+        self.stop_calls += 1
         self.stopped = True
+        if self.stop_error is not None:
+            raise self.stop_error
 
 
 def fake_playwright_factory(playwright):
@@ -250,6 +260,35 @@ async def test_session_close_closes_context_then_browser(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_session_close_stops_playwright_and_closes_display_after_context_close_failure(tmp_path):
+    cleanup_error = RuntimeError("context close failed")
+    context = FakeClosable(close_error=cleanup_error)
+    browser = FakeClosable()
+    display_handle = FakeDisplayHandle()
+    playwright = FakePlaywright(FakeChromium(), stop_error=None)
+    session = BrowserSession(
+        "s1",
+        FakePage(),
+        context,
+        browser,
+        tmp_path,
+        "cdp",
+        "cdp",
+        display_handle=display_handle,
+        playwright=playwright,
+    )
+
+    with pytest.raises(RuntimeError, match="context close failed") as excinfo:
+        await session.close()
+
+    assert excinfo.value is cleanup_error
+    assert context.close_calls == 1
+    assert browser.close_calls == 1
+    assert playwright.stop_calls == 1
+    assert display_handle.close_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_manager_starts_session_with_selected_backend(tmp_path):
     session = BrowserSession("fixed", FakePage(), FakeClosable(), None, tmp_path, "direct", "headless")
     direct = FakeBackend(session)
@@ -323,6 +362,26 @@ async def test_cdp_start_failure_stops_playwright_and_closes_created_context():
     assert playwright.stopped is True
 
 
+@pytest.mark.asyncio
+async def test_cdp_start_failure_preserves_original_exception_when_cleanup_raises():
+    created_context = FakeCdpContext(fail_new_page=True)
+    created_context.close_error = RuntimeError("context close failed")
+    browser = FakeCdpBrowser(new_context=created_context)
+    playwright = FakePlaywright(
+        FakeChromium(browser=browser),
+        stop_error=RuntimeError("playwright stop failed"),
+    )
+    backend = CdpBackend(playwright_factory=fake_playwright_factory(playwright))
+
+    with pytest.raises(CdpConnectionFailed, match="127.0.0.1:9222") as excinfo:
+        await backend.start(StartOptions.from_values(backend="cdp", cdp_url="http://127.0.0.1:9222"))
+
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+    assert str(excinfo.value.__cause__) == "page failed"
+    assert created_context.close_calls == 1
+    assert playwright.stop_calls == 1
+
+
 def fake_context_launcher(context):
     async def _launcher(**kwargs):
         return context
@@ -346,6 +405,25 @@ async def test_direct_start_failure_closes_created_context_and_display_handle():
     assert display_manager.display_modes == [DisplayMode.VIRTUAL]
     assert context.closed is True
     assert display_handle.closed is True
+
+
+@pytest.mark.asyncio
+async def test_direct_start_failure_preserves_original_exception_when_cleanup_raises():
+    display_handle = FakeDisplayHandle(close_error=RuntimeError("display close failed"))
+    display_manager = FakeDisplayManager(display_handle)
+    context = FakeDirectContext(fail_new_page=True)
+    context.close_error = RuntimeError("context close failed")
+    backend = DirectBackend(
+        display_manager=display_manager,
+        context_launcher=fake_context_launcher(context),
+    )
+
+    with pytest.raises(RuntimeError, match="page failed") as excinfo:
+        await backend.start(StartOptions.from_values(display_mode="virtual"))
+
+    assert str(excinfo.value) == "page failed"
+    assert context.close_calls == 1
+    assert display_handle.close_calls == 1
 
 
 @pytest.mark.asyncio
