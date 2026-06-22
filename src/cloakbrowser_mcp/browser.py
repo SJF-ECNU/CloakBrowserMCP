@@ -25,6 +25,8 @@ class BrowserSession:
         display_mode: str,
         display_handle: Any | None = None,
         playwright: Any | None = None,
+        owns_context: bool = True,
+        owns_browser: bool = True,
     ) -> None:
         self.session_id = session_id
         self.page = page
@@ -34,6 +36,8 @@ class BrowserSession:
         self.display_mode = display_mode
         self.display_handle = display_handle
         self.playwright = playwright
+        self.owns_context = owns_context
+        self.owns_browser = owns_browser
         self.screenshot_dir = Path(
             screenshot_dir
             or os.environ.get("CLOAK_MCP_SCREENSHOT_DIR")
@@ -78,9 +82,9 @@ class BrowserSession:
 
     async def close(self) -> None:
         try:
-            if self.context is not None:
+            if self.owns_context and self.context is not None:
                 await self.context.close()
-            if self.browser is not None:
+            if self.owns_browser and self.browser is not None:
                 await self.browser.close()
             if self.playwright is not None:
                 await self.playwright.stop()
@@ -152,14 +156,34 @@ class CdpBackend:
 
     async def start(self, options: StartOptions) -> BrowserSession:
         cdp_url = options.resolved_cdp_url()
+        playwright = None
+        browser = None
+        context = None
+        owns_context = False
         try:
             playwright = await self._start_playwright()
             browser = await playwright.chromium.connect_over_cdp(cdp_url)
-            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            if browser.contexts:
+                context = browser.contexts[0]
+            else:
+                context = await browser.new_context()
+                owns_context = True
             page = context.pages[0] if context.pages else await context.new_page()
         except Exception as exc:
+            await self._cleanup_failed_start(playwright=playwright, context=context, owns_context=owns_context)
             raise CdpConnectionFailed(f"Failed to connect to CDP endpoint {cdp_url!r}") from exc
-        return BrowserSession(uuid.uuid4().hex, page, context, browser, None, "cdp", "cdp", playwright=playwright)
+        return BrowserSession(
+            uuid.uuid4().hex,
+            page,
+            context,
+            browser,
+            None,
+            "cdp",
+            "cdp",
+            playwright=playwright,
+            owns_context=owns_context,
+            owns_browser=False,
+        )
 
     async def _start_playwright(self) -> Any:
         if self.playwright_factory is not None:
@@ -167,6 +191,14 @@ class CdpBackend:
         from playwright.async_api import async_playwright
 
         return await async_playwright().start()
+
+    async def _cleanup_failed_start(self, *, playwright: Any | None, context: Any | None, owns_context: bool) -> None:
+        try:
+            if owns_context and context is not None:
+                await context.close()
+        finally:
+            if playwright is not None:
+                await playwright.stop()
 
 
 class BrowserManager:

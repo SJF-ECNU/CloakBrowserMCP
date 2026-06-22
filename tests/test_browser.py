@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from cloakbrowser_mcp.browser import BrowserManager, BrowserSession
-from cloakbrowser_mcp.errors import ElementNotFound, ScreenshotFailed, SessionNotFound
+from cloakbrowser_mcp.browser import BrowserManager, BrowserSession, CdpBackend
+from cloakbrowser_mcp.errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, SessionNotFound
 from cloakbrowser_mcp.models import BackendMode, DisplayMode, StartOptions
 
 
@@ -62,6 +62,60 @@ class FakeBackend:
     async def start(self, options):
         self.options = options
         return self.session
+
+
+class FakeCdpContext(FakeClosable):
+    def __init__(self, pages=None, *, fail_new_page=False):
+        super().__init__()
+        self.pages = list(pages or [])
+        self.fail_new_page = fail_new_page
+
+    async def new_page(self):
+        if self.fail_new_page:
+            raise RuntimeError("page failed")
+        page = FakePage()
+        self.pages.append(page)
+        return page
+
+
+class FakeCdpBrowser(FakeClosable):
+    def __init__(self, contexts=None, *, new_context=None):
+        super().__init__()
+        self.contexts = list(contexts or [])
+        self._new_context = new_context or FakeCdpContext()
+
+    async def new_context(self):
+        self.contexts.append(self._new_context)
+        return self._new_context
+
+
+class FakeChromium:
+    def __init__(self, *, browser=None, connect_error=None):
+        self.browser = browser
+        self.connect_error = connect_error
+        self.urls = []
+
+    async def connect_over_cdp(self, url):
+        self.urls.append(url)
+        if self.connect_error is not None:
+            raise self.connect_error
+        return self.browser
+
+
+class FakePlaywright:
+    def __init__(self, chromium):
+        self.chromium = chromium
+        self.stopped = False
+
+    async def stop(self):
+        self.stopped = True
+
+
+def fake_playwright_factory(playwright):
+    async def _factory():
+        return playwright
+
+    return _factory
 
 
 @pytest.mark.asyncio
@@ -208,3 +262,35 @@ async def test_manager_close_removes_session(tmp_path):
     assert context.closed is True
     with pytest.raises(SessionNotFound):
         manager.get("s1")
+
+
+@pytest.mark.asyncio
+async def test_cdp_session_close_does_not_close_borrowed_context_or_browser(tmp_path):
+    existing_page = FakePage()
+    existing_context = FakeCdpContext(pages=[existing_page])
+    browser = FakeCdpBrowser(contexts=[existing_context])
+    playwright = FakePlaywright(FakeChromium(browser=browser))
+    backend = CdpBackend(playwright_factory=fake_playwright_factory(playwright))
+
+    session = await backend.start(StartOptions.from_values(backend="cdp", cdp_url="http://127.0.0.1:9222"))
+    await session.close()
+
+    assert session.page is existing_page
+    assert session.context is existing_context
+    assert existing_context.closed is False
+    assert browser.closed is False
+    assert playwright.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_cdp_start_failure_stops_playwright_and_closes_created_context():
+    created_context = FakeCdpContext(fail_new_page=True)
+    browser = FakeCdpBrowser(new_context=created_context)
+    playwright = FakePlaywright(FakeChromium(browser=browser))
+    backend = CdpBackend(playwright_factory=fake_playwright_factory(playwright))
+
+    with pytest.raises(CdpConnectionFailed, match="127.0.0.1:9222"):
+        await backend.start(StartOptions.from_values(backend="cdp", cdp_url="http://127.0.0.1:9222"))
+
+    assert created_context.closed is True
+    assert playwright.stopped is True

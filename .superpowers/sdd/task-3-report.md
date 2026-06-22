@@ -43,3 +43,21 @@
 
 ### Notes / residual concerns
 - The current tests exercise `BrowserManager`; they do not directly unit test `DirectBackend.start()` or `CdpBackend.start()` launch mechanics with real launchers. That matches the brief's requested test surface, but deeper backend integration coverage would still be useful later.
+
+### Task 3 review fixes
+- Added explicit CDP ownership semantics in `BrowserSession` via `owns_context` and `owns_browser`.
+  - Direct sessions keep the default ownership and still close their own context on teardown.
+  - CDP sessions now treat the connected browser as external and only close the context when this MCP session had to create it.
+- Tightened `CdpBackend.start()` cleanup on failure:
+  - if `connect_over_cdp()` fails after Playwright starts, the local Playwright client is stopped before raising `CdpConnectionFailed`;
+  - if CDP connect succeeds but this MCP session creates a fresh context and page creation then fails, that created context is closed and the local Playwright client is stopped before raising.
+- Added fake-CDP coverage in `tests/test_browser.py` for:
+  - borrowed existing CDP context/page surviving `session.close()`;
+  - CDP startup failure stopping the local Playwright client and closing the created context.
+
+### Task 3 review verification
+- Refreshed the non-editable package after the code change:
+  - `uv sync --extra dev --no-editable --reinstall-package cloakbrowser-mcp`
+- Focused browser verification:
+  - `uv run --no-editable pytest tests/test_browser.py -q`
+  - Result: `14 passed in 0.03s`
