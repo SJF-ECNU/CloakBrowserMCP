@@ -100,10 +100,10 @@ markers = [
 Run:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --no-install-project
 ```
 
-Expected: `uv.lock` and project-local `.venv/` are created.
+Expected: `uv.lock` and project-local `.venv/` are created without requiring the package directory to exist yet.
 
 - [ ] **Step 1: Write the failing model tests**
 
@@ -342,6 +342,16 @@ class ScreenshotResult:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 ```
+
+- [ ] **Step 3b: Install the project into the uv environment**
+
+Run:
+
+```bash
+uv sync --extra dev
+```
+
+Expected: the local package installs into `.venv`.
 
 - [ ] **Step 4: Run the model tests and verify they pass**
 
