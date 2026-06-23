@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -17,6 +17,9 @@ class DisplayMode(str, Enum):
     HEADLESS = "headless"
     VIRTUAL = "virtual"
     CDP = "cdp"
+
+
+ColorScheme = Literal["light", "dark", "no-preference"]
 
 
 def _enum_value(enum_type: type[Enum], value: str | Enum | None, default: Enum) -> Enum:
@@ -41,6 +44,15 @@ def _with_fingerprint(url: str, fingerprint: str | None) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query_items), parts.fragment))
 
 
+def _color_scheme_value(value: str | None) -> ColorScheme | None:
+    if value is None:
+        return None
+    allowed = {"light", "dark", "no-preference"}
+    if value not in allowed:
+        raise ValueError("Unsupported color_scheme {!r}; expected one of: dark, light, no-preference".format(value))
+    return value  # type: ignore[return-value]
+
+
 @dataclass(slots=True)
 class StartOptions:
     backend: BackendMode = BackendMode.DIRECT
@@ -53,6 +65,19 @@ class StartOptions:
     profile_dir: Path | None = None
     cdp_url: str | None = None
     fingerprint: str | None = None
+    user_agent: str | None = None
+    viewport: dict[str, int] | None = None
+    no_viewport: bool = False
+    color_scheme: ColorScheme | None = None
+    geoip: bool = False
+    stealth_args: bool = True
+    args: list[str] | None = None
+    extension_paths: list[str] | None = None
+    human_preset: str = "default"
+    human_config: dict[str, Any] | None = None
+    storage_state: str | dict[str, Any] | None = None
+    extra_http_headers: dict[str, str] | None = None
+    permissions: list[str] | None = None
 
     @classmethod
     def from_values(
@@ -68,6 +93,19 @@ class StartOptions:
         profile_dir: str | Path | None = None,
         cdp_url: str | None = None,
         fingerprint: str | None = None,
+        user_agent: str | None = None,
+        viewport: dict[str, int] | None = None,
+        no_viewport: bool = False,
+        color_scheme: str | None = None,
+        geoip: bool = False,
+        stealth_args: bool = True,
+        args: list[str] | None = None,
+        extension_paths: list[str] | None = None,
+        human_preset: str = "default",
+        human_config: dict[str, Any] | None = None,
+        storage_state: str | dict[str, Any] | None = None,
+        extra_http_headers: dict[str, str] | None = None,
+        permissions: list[str] | None = None,
     ) -> "StartOptions":
         default_display = DisplayMode(os.environ.get("CLOAK_MCP_DEFAULT_DISPLAY_MODE", DisplayMode.HEADLESS.value))
         resolved_display = _enum_value(DisplayMode, display_mode, default_display)
@@ -87,6 +125,10 @@ class StartOptions:
             cdp_url = cdp_url or os.environ.get("CLOAK_MCP_DEFAULT_CDP_URL")
             if not cdp_url:
                 raise ValueError("cdp_url is required when backend='cdp'")
+        if viewport is not None and no_viewport:
+            raise ValueError("viewport and no_viewport cannot both be set")
+        if profile_dir is not None and storage_state is not None:
+            raise ValueError("storage_state cannot be used with profile_dir; reuse profile_dir for persistent state")
         return cls(
             backend=resolved_backend,
             display_mode=resolved_display,
@@ -98,6 +140,19 @@ class StartOptions:
             profile_dir=Path(profile_dir) if profile_dir else None,
             cdp_url=cdp_url,
             fingerprint=fingerprint,
+            user_agent=user_agent,
+            viewport=viewport,
+            no_viewport=no_viewport,
+            color_scheme=_color_scheme_value(color_scheme),
+            geoip=geoip,
+            stealth_args=stealth_args,
+            args=args,
+            extension_paths=extension_paths,
+            human_preset=human_preset,
+            human_config=human_config,
+            storage_state=storage_state,
+            extra_http_headers=extra_http_headers,
+            permissions=permissions,
         )
 
     def resolved_headless(self) -> bool | None:

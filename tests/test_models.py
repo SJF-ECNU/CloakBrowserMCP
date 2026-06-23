@@ -82,3 +82,55 @@ def test_headless_argument_cannot_override_virtual_mode():
     options = StartOptions.from_values(display_mode="virtual", headless=True)
 
     assert options.resolved_headless() is False
+
+
+def test_start_options_preserve_cloakbrowser_launch_options(tmp_path):
+    storage_state = tmp_path / "state.json"
+    options = StartOptions.from_values(
+        user_agent="AgentBrowser/1.0",
+        viewport={"width": 1440, "height": 900},
+        color_scheme="dark",
+        geoip=True,
+        stealth_args=False,
+        args=["--disable-dev-shm-usage"],
+        extension_paths=["/tmp/ext"],
+        human_preset="careful",
+        human_config={"mouse_speed": 0.5},
+        storage_state=str(storage_state),
+        extra_http_headers={"X-Agent": "cloak"},
+        permissions=["geolocation"],
+    )
+
+    assert options.user_agent == "AgentBrowser/1.0"
+    assert options.viewport == {"width": 1440, "height": 900}
+    assert options.no_viewport is False
+    assert options.color_scheme == "dark"
+    assert options.geoip is True
+    assert options.stealth_args is False
+    assert options.args == ["--disable-dev-shm-usage"]
+    assert options.extension_paths == ["/tmp/ext"]
+    assert options.human_preset == "careful"
+    assert options.human_config == {"mouse_speed": 0.5}
+    assert options.storage_state == str(storage_state)
+    assert options.extra_http_headers == {"X-Agent": "cloak"}
+    assert options.permissions == ["geolocation"]
+
+
+def test_no_viewport_and_viewport_conflict():
+    with pytest.raises(ValueError, match="no_viewport"):
+        StartOptions.from_values(viewport={"width": 1280, "height": 720}, no_viewport=True)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark", "no-preference"])
+def test_supported_color_schemes(color_scheme):
+    assert StartOptions.from_values(color_scheme=color_scheme).color_scheme == color_scheme
+
+
+def test_unsupported_color_scheme_raises():
+    with pytest.raises(ValueError, match="color_scheme"):
+        StartOptions.from_values(color_scheme="sepia")
+
+
+def test_profile_dir_and_storage_state_conflict(tmp_path):
+    with pytest.raises(ValueError, match="storage_state"):
+        StartOptions.from_values(profile_dir=tmp_path / "profile", storage_state="state.json")
