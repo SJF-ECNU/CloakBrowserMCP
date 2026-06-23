@@ -318,9 +318,12 @@ async def test_session_get_links_limits_results(tmp_path):
     session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
 
     links = await session.get_links(limit=2)
+    evaluate_script = page.actions[-1][1]
 
     assert len(links.links) == 2
     assert links.links[0] == {"text": "One", "href": "https://example.com/one"}
+    assert "const selector = null;" in evaluate_script
+    assert "None" not in evaluate_script
 
 
 @pytest.mark.asyncio

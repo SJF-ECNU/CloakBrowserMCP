@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import uuid
@@ -144,8 +145,9 @@ class BrowserSession:
         return AttributeResult(session_id=self.session_id, value=value)
 
     async def get_links(self, selector: str | None = None, limit: int = 50) -> LinksResult:
+        selector_json = json.dumps(selector)
         script = f"""() => {{
-            const selector = {selector!r};
+            const selector = {selector_json};
             const roots = selector === null ? [document] : Array.from(document.querySelectorAll(selector));
             const anchors = roots.flatMap((root) => {{
                 const nested = Array.from(root.querySelectorAll('a'));
