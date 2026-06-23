@@ -143,6 +143,36 @@ class DirectBackend:
             display_handle,
         )
 
+    def _context_kwargs(self, options: StartOptions, *, headless: bool | None) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "headless": headless if headless is not None else True,
+            "proxy": options.proxy,
+            "locale": options.locale,
+            "timezone": options.timezone,
+            "humanize": options.humanize,
+            "geoip": options.geoip,
+            "stealth_args": options.stealth_args,
+        }
+        optional_values = {
+            "user_agent": options.user_agent,
+            "color_scheme": options.color_scheme,
+            "args": options.args,
+            "extension_paths": options.extension_paths,
+            "human_preset": options.human_preset,
+            "human_config": options.human_config,
+            "storage_state": options.storage_state,
+            "extra_http_headers": options.extra_http_headers,
+            "permissions": options.permissions,
+        }
+        for key, value in optional_values.items():
+            if value is not None:
+                kwargs[key] = value
+        if options.viewport is not None:
+            kwargs["viewport"] = options.viewport
+        elif options.no_viewport:
+            kwargs["viewport"] = None
+        return kwargs
+
     async def _launch_context(self, options: StartOptions, *, headless: bool | None) -> Any:
         if options.profile_dir:
             launcher = self.persistent_context_launcher
@@ -152,24 +182,14 @@ class DirectBackend:
                 launcher = launch_persistent_context_async
             return await launcher(
                 str(options.profile_dir),
-                headless=headless if headless is not None else True,
-                proxy=options.proxy,
-                locale=options.locale,
-                timezone=options.timezone,
-                humanize=options.humanize,
+                **self._context_kwargs(options, headless=headless),
             )
         launcher = self.context_launcher
         if launcher is None:
             from cloakbrowser import launch_context_async
 
             launcher = launch_context_async
-        return await launcher(
-            headless=headless if headless is not None else True,
-            proxy=options.proxy,
-            locale=options.locale,
-            timezone=options.timezone,
-            humanize=options.humanize,
-        )
+        return await launcher(**self._context_kwargs(options, headless=headless))
 
 
 class CdpBackend:

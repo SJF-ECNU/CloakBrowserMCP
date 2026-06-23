@@ -407,6 +407,14 @@ def fake_context_launcher(context):
     return _launcher
 
 
+def recording_context_launcher(context, calls):
+    async def _launcher(**kwargs):
+        calls.append(kwargs)
+        return context
+
+    return _launcher
+
+
 @pytest.mark.asyncio
 async def test_direct_start_failure_closes_created_context_and_display_handle():
     display_handle = FakeDisplayHandle()
@@ -423,6 +431,64 @@ async def test_direct_start_failure_closes_created_context_and_display_handle():
     assert display_manager.display_modes == [DisplayMode.VIRTUAL]
     assert context.closed is True
     assert display_handle.closed is True
+
+
+@pytest.mark.asyncio
+async def test_direct_backend_forwards_v2_context_options():
+    calls = []
+    context = FakeDirectContext()
+    backend = DirectBackend(context_launcher=recording_context_launcher(context, calls))
+
+    await backend.start(
+        StartOptions.from_values(
+            user_agent="AgentBrowser/1.0",
+            viewport={"width": 1440, "height": 900},
+            color_scheme="dark",
+            geoip=True,
+            stealth_args=False,
+            args=["--disable-dev-shm-usage"],
+            extension_paths=["/tmp/ext"],
+            humanize=True,
+            human_preset="careful",
+            human_config={"mouse_speed": 0.5},
+            storage_state="state.json",
+            extra_http_headers={"X-Agent": "cloak"},
+            permissions=["geolocation"],
+        )
+    )
+
+    assert calls == [
+        {
+            "headless": True,
+            "proxy": None,
+            "locale": None,
+            "timezone": None,
+            "humanize": True,
+            "user_agent": "AgentBrowser/1.0",
+            "viewport": {"width": 1440, "height": 900},
+            "color_scheme": "dark",
+            "geoip": True,
+            "stealth_args": False,
+            "args": ["--disable-dev-shm-usage"],
+            "extension_paths": ["/tmp/ext"],
+            "human_preset": "careful",
+            "human_config": {"mouse_speed": 0.5},
+            "storage_state": "state.json",
+            "extra_http_headers": {"X-Agent": "cloak"},
+            "permissions": ["geolocation"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_direct_backend_passes_none_viewport_when_no_viewport_is_true():
+    calls = []
+    context = FakeDirectContext()
+    backend = DirectBackend(context_launcher=recording_context_launcher(context, calls))
+
+    await backend.start(StartOptions.from_values(no_viewport=True))
+
+    assert calls[0]["viewport"] is None
 
 
 @pytest.mark.asyncio
