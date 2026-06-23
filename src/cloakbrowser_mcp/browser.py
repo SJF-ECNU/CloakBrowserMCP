@@ -169,17 +169,19 @@ class BrowserSession:
     async def close_page(self, page_id: str | None = None) -> OperationResult:
         target_page_id = page_id or self._active_page_id
         page = self._get_page(target_page_id)
-        await page.close()
         if len(self._pages) == 1:
             new_page = await self.context.new_page()
-            new_page_id = self._register_page(new_page)
+            await page.close()
             self._pages.pop(target_page_id, None)
+            new_page_id = self._register_page(new_page)
             self.page = new_page
             self._active_page_id = new_page_id
         elif page is self.page:
+            await page.close()
             self._pages.pop(target_page_id, None)
             self._active_page_id, self.page = next(iter(self._pages.items()))
         else:
+            await page.close()
             self._pages.pop(target_page_id, None)
         return OperationResult(ok=True, session_id=self.session_id)
 

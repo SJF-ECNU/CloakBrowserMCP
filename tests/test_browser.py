@@ -21,6 +21,7 @@ class FakePage:
         self.fail_selector = False
         self.selector_timeout_error = TimeoutError
         self.fail_screenshot = False
+        self.closed = False
 
     async def goto(self, url, wait_until="load"):
         self.actions.append(("goto", url, wait_until))
@@ -105,6 +106,7 @@ class FakePage:
         return None
 
     async def close(self):
+        self.closed = True
         self.actions.append(("close",))
 
 
@@ -440,6 +442,7 @@ async def test_session_close_last_page_creates_replacement_page(tmp_path):
     result = await session.close_page()
 
     assert result.ok is True
+    assert first_page.closed is True
     assert ("close",) in first_page.actions
     assert len(context.pages) == 2
     assert session.page is context.pages[1]
@@ -462,6 +465,7 @@ async def test_session_close_last_page_replacement_failure_preserves_registry(tm
     assert session._pages == {original_page_id: first_page}
     assert session._active_page_id == original_page_id
     assert session.page is first_page
+    assert first_page.closed is False
 
 
 @pytest.mark.asyncio
