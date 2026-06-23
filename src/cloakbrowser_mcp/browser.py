@@ -171,7 +171,11 @@ class BrowserSession:
         page = self._get_page(target_page_id)
         if len(self._pages) == 1:
             new_page = await self.context.new_page()
-            await page.close()
+            try:
+                await page.close()
+            except Exception:
+                await _run_cleanup_steps((True, new_page.close))
+                raise
             self._pages.pop(target_page_id, None)
             new_page_id = self._register_page(new_page)
             self.page = new_page

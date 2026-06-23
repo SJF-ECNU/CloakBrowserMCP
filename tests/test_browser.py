@@ -22,6 +22,7 @@ class FakePage:
         self.selector_timeout_error = TimeoutError
         self.fail_screenshot = False
         self.closed = False
+        self.close_error = None
 
     async def goto(self, url, wait_until="load"):
         self.actions.append(("goto", url, wait_until))
@@ -106,8 +107,10 @@ class FakePage:
         return None
 
     async def close(self):
-        self.closed = True
         self.actions.append(("close",))
+        if self.close_error is not None:
+            raise self.close_error
+        self.closed = True
 
 
 class FakeClosable:
@@ -462,6 +465,28 @@ async def test_session_close_last_page_replacement_failure_preserves_registry(tm
     with pytest.raises(RuntimeError, match="page failed"):
         await session.close_page()
 
+    assert session._pages == {original_page_id: first_page}
+    assert session._active_page_id == original_page_id
+    assert session.page is first_page
+    assert first_page.closed is False
+
+
+@pytest.mark.asyncio
+async def test_session_close_last_page_close_failure_cleans_replacement(tmp_path):
+    context = FakeDirectContext()
+    first_page = await context.new_page()
+    close_error = RuntimeError("close failed")
+    first_page.close_error = close_error
+    session = BrowserSession("s1", first_page, context, None, tmp_path, "direct", "headless")
+    original_page_id = session._active_page_id
+
+    with pytest.raises(RuntimeError, match="close failed") as excinfo:
+        await session.close_page()
+
+    assert excinfo.value is close_error
+    assert len(context.pages) == 2
+    replacement_page = context.pages[1]
+    assert replacement_page.closed is True
     assert session._pages == {original_page_id: first_page}
     assert session._active_page_id == original_page_id
     assert session.page is first_page
