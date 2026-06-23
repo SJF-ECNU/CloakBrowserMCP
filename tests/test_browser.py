@@ -4,7 +4,13 @@ import pytest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from cloakbrowser_mcp.browser import BrowserManager, BrowserSession, CdpBackend, DirectBackend
-from cloakbrowser_mcp.errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, SessionNotFound
+from cloakbrowser_mcp.errors import (
+    CdpConnectionFailed,
+    ElementNotFound,
+    ScreenshotFailed,
+    SessionNotFound,
+    StorageStateFailed,
+)
 from cloakbrowser_mcp.models import BackendMode, DisplayMode, StartOptions
 
 
@@ -423,6 +429,51 @@ async def test_session_close_active_page_selects_remaining_page(tmp_path):
     pages = await session.list_pages()
     assert len(pages.pages) == 1
     assert pages.pages[0]["is_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_session_close_last_page_creates_replacement_page(tmp_path):
+    context = FakeDirectContext()
+    first_page = await context.new_page()
+    session = BrowserSession("s1", first_page, context, None, tmp_path, "direct", "headless")
+
+    result = await session.close_page()
+
+    assert result.ok is True
+    assert ("close",) in first_page.actions
+    assert len(context.pages) == 2
+    assert session.page is context.pages[1]
+    pages = await session.list_pages()
+    assert len(pages.pages) == 1
+    assert pages.pages[0]["is_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_session_close_last_page_replacement_failure_preserves_registry(tmp_path):
+    context = FakeDirectContext()
+    first_page = await context.new_page()
+    session = BrowserSession("s1", first_page, context, None, tmp_path, "direct", "headless")
+    original_page_id = session._active_page_id
+    context.fail_new_page = True
+
+    with pytest.raises(RuntimeError, match="page failed"):
+        await session.close_page()
+
+    assert session._pages == {original_page_id: first_page}
+    assert session._active_page_id == original_page_id
+    assert session.page is first_page
+
+
+@pytest.mark.asyncio
+async def test_session_save_storage_state_wraps_parent_creation_failure(tmp_path):
+    context = FakeDirectContext()
+    page = await context.new_page()
+    session = BrowserSession("s1", page, context, None, tmp_path, "direct", "headless")
+    blocked_parent = tmp_path / "state-parent"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(StorageStateFailed, match="Failed to write storage state"):
+        await session.save_storage_state(blocked_parent / "state.json")
 
 
 @pytest.mark.asyncio

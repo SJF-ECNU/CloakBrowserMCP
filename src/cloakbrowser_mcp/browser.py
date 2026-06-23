@@ -137,8 +137,8 @@ class BrowserSession:
 
     async def save_storage_state(self, path: str | Path) -> StorageStateFileResult:
         output = Path(path)
-        output.parent.mkdir(parents=True, exist_ok=True)
         try:
+            output.parent.mkdir(parents=True, exist_ok=True)
             await self.context.storage_state(path=str(output))
         except Exception as exc:
             raise StorageStateFailed(f"Failed to write storage state to {output}") from exc
@@ -170,14 +170,17 @@ class BrowserSession:
         target_page_id = page_id or self._active_page_id
         page = self._get_page(target_page_id)
         await page.close()
-        self._pages.pop(target_page_id, None)
-        if not self._pages:
+        if len(self._pages) == 1:
             new_page = await self.context.new_page()
             new_page_id = self._register_page(new_page)
+            self._pages.pop(target_page_id, None)
             self.page = new_page
             self._active_page_id = new_page_id
         elif page is self.page:
+            self._pages.pop(target_page_id, None)
             self._active_page_id, self.page = next(iter(self._pages.items()))
+        else:
+            self._pages.pop(target_page_id, None)
         return OperationResult(ok=True, session_id=self.session_id)
 
     async def click(self, selector: str) -> OperationResult:
