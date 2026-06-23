@@ -10,7 +10,19 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .display import VirtualDisplayManager
 from .errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, SessionNotFound
-from .models import BackendMode, OperationResult, ScreenshotResult, SnapshotResult, StartOptions, StartResult
+from .models import (
+    AttributeResult,
+    BackendMode,
+    LinksResult,
+    OperationResult,
+    PageNavigationResult,
+    ScreenshotResult,
+    SelectResult,
+    SnapshotResult,
+    StartOptions,
+    StartResult,
+    TextResult,
+)
 
 
 async def _run_cleanup_steps(*steps: tuple[bool, Any]) -> Exception | None:
@@ -76,6 +88,95 @@ class BrowserSession:
         except (TimeoutError, PlaywrightTimeoutError) as exc:
             raise ElementNotFound(f"Element not found for selector {selector!r}") from exc
         return OperationResult(ok=True, session_id=self.session_id)
+
+    async def wait_for_selector(
+        self,
+        selector: str,
+        state: str = "visible",
+        timeout_ms: int | None = None,
+    ) -> OperationResult:
+        try:
+            await self.page.wait_for_selector(selector, state=state, timeout=timeout_ms)
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
+            raise ElementNotFound(
+                f"Element not found for selector {selector!r} while waiting for state {state!r}"
+            ) from exc
+        return OperationResult(ok=True, session_id=self.session_id)
+
+    async def press(self, selector: str, key: str) -> OperationResult:
+        try:
+            await self.page.press(selector, key)
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
+            raise ElementNotFound(f"Element not found for selector {selector!r} while pressing {key!r}") from exc
+        return OperationResult(ok=True, session_id=self.session_id)
+
+    async def hover(self, selector: str) -> OperationResult:
+        try:
+            await self.page.hover(selector)
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
+            raise ElementNotFound(f"Element not found for selector {selector!r} while hovering") from exc
+        return OperationResult(ok=True, session_id=self.session_id)
+
+    async def select_option(self, selector: str, value: str) -> SelectResult:
+        try:
+            values = await self.page.select_option(selector, value)
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
+            raise ElementNotFound(f"Element not found for selector {selector!r} while selecting option") from exc
+        return SelectResult(session_id=self.session_id, values=list(values or []))
+
+    async def get_text(self, selector: str | None = None) -> TextResult:
+        if selector is None:
+            text = await self.page.evaluate("() => document.body.innerText")
+        else:
+            try:
+                text = await self.page.text_content(selector)
+            except (TimeoutError, PlaywrightTimeoutError) as exc:
+                raise ElementNotFound(f"Element not found for selector {selector!r} while reading text") from exc
+        return TextResult(session_id=self.session_id, text=text or "")
+
+    async def get_attribute(self, selector: str, name: str) -> AttributeResult:
+        try:
+            value = await self.page.get_attribute(selector, name)
+        except (TimeoutError, PlaywrightTimeoutError) as exc:
+            raise ElementNotFound(
+                f"Element not found for selector {selector!r} while reading attribute {name!r}"
+            ) from exc
+        return AttributeResult(session_id=self.session_id, value=value)
+
+    async def get_links(self, selector: str | None = None, limit: int = 50) -> LinksResult:
+        script = f"""() => {{
+            const selector = {selector!r};
+            const roots = selector === null ? [document] : Array.from(document.querySelectorAll(selector));
+            const anchors = roots.flatMap((root) => {{
+                const nested = Array.from(root.querySelectorAll('a'));
+                return root.matches && root.matches('a') ? [root, ...nested] : nested;
+            }});
+            return Array.from(new Set(anchors))
+                .slice(0, {limit})
+                .map((el) => ({{text: el.innerText || el.textContent || '', href: el.href || ''}}));
+        }}"""
+        links = await self.page.evaluate(script)
+        return LinksResult(session_id=self.session_id, links=list(links or [])[:limit])
+
+    async def scroll(self, delta_x: int = 0, delta_y: int = 0) -> OperationResult:
+        await self.page.evaluate(f"() => window.scrollBy({delta_x}, {delta_y})")
+        return OperationResult(ok=True, session_id=self.session_id)
+
+    async def reload(self, wait_until: str = "load") -> PageNavigationResult:
+        await self.page.reload(wait_until=wait_until)
+        return await self._page_navigation_result()
+
+    async def go_back(self, wait_until: str = "load") -> PageNavigationResult:
+        response = await self.page.go_back(wait_until=wait_until)
+        return await self._page_navigation_result("no history entry" if response is None else "ok")
+
+    async def go_forward(self, wait_until: str = "load") -> PageNavigationResult:
+        response = await self.page.go_forward(wait_until=wait_until)
+        return await self._page_navigation_result("no history entry" if response is None else "ok")
+
+    async def _page_navigation_result(self, message: str = "ok") -> PageNavigationResult:
+        title = await self.page.title()
+        return PageNavigationResult(session_id=self.session_id, url=self.page.url, title=title, message=message)
 
     async def evaluate(self, script: str) -> Any:
         return await self.page.evaluate(script)

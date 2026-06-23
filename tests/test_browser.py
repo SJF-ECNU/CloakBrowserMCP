@@ -33,10 +33,52 @@ class FakePage:
             raise self.selector_timeout_error("selector timeout")
         self.actions.append(("fill", selector, text))
 
+    async def wait_for_selector(self, selector, state="visible", timeout=None):
+        if self.fail_selector:
+            raise self.selector_timeout_error("selector timeout")
+        self.actions.append(("wait_for_selector", selector, state, timeout))
+        return object()
+
+    async def press(self, selector, key):
+        if self.fail_selector:
+            raise self.selector_timeout_error("selector timeout")
+        self.actions.append(("press", selector, key))
+
+    async def hover(self, selector):
+        if self.fail_selector:
+            raise self.selector_timeout_error("selector timeout")
+        self.actions.append(("hover", selector))
+
+    async def select_option(self, selector, value):
+        if self.fail_selector:
+            raise self.selector_timeout_error("selector timeout")
+        self.actions.append(("select_option", selector, value))
+        return [value]
+
+    async def text_content(self, selector):
+        if self.fail_selector:
+            raise self.selector_timeout_error("selector timeout")
+        self.actions.append(("text_content", selector))
+        return "Selected text"
+
+    async def get_attribute(self, selector, name):
+        if self.fail_selector:
+            raise self.selector_timeout_error("selector timeout")
+        self.actions.append(("get_attribute", selector, name))
+        return "attribute value"
+
     async def evaluate(self, script):
         self.actions.append(("evaluate", script))
         if script == "() => document.body.innerText":
             return "Example Domain\nText"
+        if script == "() => window.scrollBy(0, 500)":
+            return None
+        if "Array.from" in script and "querySelectorAll" in script:
+            return [
+                {"text": "One", "href": "https://example.com/one"},
+                {"text": "Two", "href": "https://example.com/two"},
+                {"text": "Three", "href": "https://example.com/three"},
+            ]
         return {"value": 42}
 
     async def screenshot(self, path, full_page=False):
@@ -44,6 +86,17 @@ class FakePage:
             raise RuntimeError("cannot capture")
         Path(path).write_bytes(b"png")
         self.actions.append(("screenshot", path, full_page))
+
+    async def reload(self, wait_until="load"):
+        self.actions.append(("reload", wait_until))
+
+    async def go_back(self, wait_until="load"):
+        self.actions.append(("go_back", wait_until))
+        return None
+
+    async def go_forward(self, wait_until="load"):
+        self.actions.append(("go_forward", wait_until))
+        return None
 
 
 class FakeClosable:
@@ -223,6 +276,51 @@ async def test_session_snapshot_reads_page_text(tmp_path):
         "title": "Example Domain",
         "text": "Example Domain\nText",
     }
+
+
+@pytest.mark.asyncio
+async def test_session_page_operation_methods(tmp_path):
+    page = FakePage()
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    assert (await session.wait_for_selector("#ready", state="attached", timeout_ms=500)).ok is True
+    assert (await session.press("#q", "Enter")).ok is True
+    assert (await session.hover(".menu")).ok is True
+    assert (await session.select_option("select", "medium")).values == ["medium"]
+    assert (await session.get_text("#result")).text == "Selected text"
+    assert (await session.get_attribute("a", "href")).value == "attribute value"
+    assert (await session.scroll(delta_x=0, delta_y=500)).ok is True
+    assert (await session.reload(wait_until="domcontentloaded")).title == "Example Domain"
+    assert (await session.go_back(wait_until="load")).message == "no history entry"
+    assert (await session.go_forward(wait_until="load")).message == "no history entry"
+
+    assert ("wait_for_selector", "#ready", "attached", 500) in page.actions
+    assert ("press", "#q", "Enter") in page.actions
+    assert ("hover", ".menu") in page.actions
+    assert ("select_option", "select", "medium") in page.actions
+    assert ("evaluate", "() => window.scrollBy(0, 500)") in page.actions
+    assert ("reload", "domcontentloaded") in page.actions
+
+
+@pytest.mark.asyncio
+async def test_session_get_text_without_selector_reads_body_text(tmp_path):
+    page = FakePage()
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    result = await session.get_text()
+
+    assert result.text == "Example Domain\nText"
+
+
+@pytest.mark.asyncio
+async def test_session_get_links_limits_results(tmp_path):
+    page = FakePage()
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    links = await session.get_links(limit=2)
+
+    assert len(links.links) == 2
+    assert links.links[0] == {"text": "One", "href": "https://example.com/one"}
 
 
 @pytest.mark.asyncio

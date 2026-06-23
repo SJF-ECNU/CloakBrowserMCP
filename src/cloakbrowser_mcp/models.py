@@ -193,6 +193,53 @@ class OperationResult:
 
 
 @dataclass(slots=True)
+class TextResult:
+    session_id: str
+    text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class AttributeResult:
+    session_id: str
+    value: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class SelectResult:
+    session_id: str
+    values: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class LinksResult:
+    session_id: str
+    links: list[dict[str, str]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class PageNavigationResult:
+    session_id: str
+    url: str
+    title: str
+    message: str = "ok"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class SnapshotResult:
     session_id: str
     url: str
