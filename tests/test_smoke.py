@@ -22,11 +22,16 @@ async def test_real_headless_example_dot_com_smoke():
     manager = BrowserManager()
     result = await manager.start(StartOptions.from_values(display_mode="headless"))
     try:
-        nav = await manager.get(result.session_id).navigate("https://example.com", wait_until="domcontentloaded")
-        snapshot = await manager.get(result.session_id).snapshot()
-        screenshot = await manager.get(result.session_id).screenshot()
+        session = manager.get(result.session_id)
+        nav = await session.navigate("https://example.com", wait_until="domcontentloaded")
+        text = await session.get_text()
+        links = await session.get_links(limit=5)
+        snapshot = await session.snapshot()
+        screenshot = await session.screenshot()
 
         assert "Example" in nav["title"]
+        assert "Example Domain" in text.text
+        assert isinstance(links.links, list)
         assert "Example Domain" in snapshot.text
         assert Path(screenshot.path).exists()
     finally:

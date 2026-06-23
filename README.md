@@ -32,14 +32,60 @@ The default mode is direct headless browsing and does not require `$DISPLAY`.
 
 ## Tools
 
+Session:
+
 - `browser_start`
+- `browser_close`
+
+Page basics:
+
 - `browser_navigate`
 - `browser_click`
 - `browser_type`
 - `browser_evaluate`
 - `browser_snapshot`
 - `browser_screenshot`
-- `browser_close`
+
+Page operations:
+
+- `browser_wait_for_selector`
+- `browser_press`
+- `browser_hover`
+- `browser_select_option`
+- `browser_get_text`
+- `browser_get_attribute`
+- `browser_get_links`
+- `browser_scroll`
+- `browser_reload`
+- `browser_go_back`
+- `browser_go_forward`
+
+Context and pages:
+
+- `browser_get_cookies`
+- `browser_set_cookies`
+- `browser_clear_cookies`
+- `browser_get_storage_state`
+- `browser_save_storage_state`
+- `browser_new_page`
+- `browser_list_pages`
+- `browser_switch_page`
+- `browser_close_page`
+
+## Rich Launch Options
+
+```json
+{
+  "display_mode": "headless",
+  "user_agent": "AgentBrowser/1.0",
+  "viewport": {"width": 1440, "height": 900},
+  "color_scheme": "dark",
+  "geoip": false,
+  "humanize": true,
+  "human_preset": "careful",
+  "storage_state": "/tmp/cloak-state.json"
+}
+```
 
 ## Linux Virtual Display
 
