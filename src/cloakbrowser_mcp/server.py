@@ -109,8 +109,20 @@ class ToolHandlers:
     async def browser_hover(self, session_id: str, selector: str) -> dict[str, Any]:
         return (await self.manager.get(session_id).hover(selector)).to_dict()
 
-    async def browser_select_option(self, session_id: str, selector: str, value: str) -> dict[str, Any]:
-        return (await self.manager.get(session_id).select_option(selector, value)).to_dict()
+    async def browser_select_option(
+        self,
+        session_id: str,
+        selector: str,
+        value: str,
+        frame_selector: str | None = None,
+    ) -> dict[str, Any]:
+        return (
+            await self.manager.get(session_id).select_option(
+                selector,
+                value,
+                frame_selector=frame_selector,
+            )
+        ).to_dict()
 
     async def browser_get_text(self, session_id: str, selector: str | None = None) -> dict[str, Any]:
         return (await self.manager.get(session_id).get_text(selector=selector)).to_dict()

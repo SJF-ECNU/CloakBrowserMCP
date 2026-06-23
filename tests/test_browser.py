@@ -66,6 +66,10 @@ class FakePage:
         self.actions.append(("select_option", selector, value))
         return [value]
 
+    def frame_locator(self, selector):
+        self.actions.append(("frame_locator", selector))
+        return FakeFrameLocator(self, selector)
+
     async def text_content(self, selector):
         if self.fail_selector:
             raise self.selector_timeout_error("selector timeout")
@@ -114,6 +118,29 @@ class FakePage:
         if self.close_error is not None:
             raise self.close_error
         self.closed = True
+
+
+class FakeFrameLocator:
+    def __init__(self, page, selector):
+        self.page = page
+        self.selector = selector
+
+    def locator(self, selector):
+        self.page.actions.append(("frame_locator_locator", self.selector, selector))
+        return FakeFrameElement(self.page, self.selector, selector)
+
+
+class FakeFrameElement:
+    def __init__(self, page, frame_selector, selector):
+        self.page = page
+        self.frame_selector = frame_selector
+        self.selector = selector
+
+    async def select_option(self, value):
+        if self.page.fail_selector:
+            raise self.page.selector_timeout_error("selector timeout")
+        self.page.actions.append(("frame_select_option", self.frame_selector, self.selector, value))
+        return [value]
 
 
 class FakeClosable:
@@ -338,6 +365,19 @@ async def test_session_page_operation_methods(tmp_path):
     assert ("select_option", "select", "medium") in page.actions
     assert ("evaluate", "() => window.scrollBy(0, 500)") in page.actions
     assert ("reload", "domcontentloaded") in page.actions
+
+
+@pytest.mark.asyncio
+async def test_session_select_option_can_target_frame_selector(tmp_path):
+    page = FakePage()
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    result = await session.select_option("select", "medium", frame_selector="iframe#iframeResult")
+
+    assert result.values == ["medium"]
+    assert ("frame_locator", "iframe#iframeResult") in page.actions
+    assert ("frame_locator_locator", "iframe#iframeResult", "select") in page.actions
+    assert ("frame_select_option", "iframe#iframeResult", "select", "medium") in page.actions
 
 
 @pytest.mark.asyncio

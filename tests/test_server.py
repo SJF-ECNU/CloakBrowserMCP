@@ -5,6 +5,9 @@ from cloakbrowser_mcp.server import ToolHandlers, create_server
 
 
 class FakeSession:
+    def __init__(self):
+        self.calls = []
+
     async def navigate(self, url, wait_until="load"):
         return {"session_id": "s1", "url": url, "title": "Example Domain"}
 
@@ -32,9 +35,10 @@ class FakeSession:
     async def hover(self, selector):
         return OperationResult(ok=True, session_id="s1", message=f"hovered {selector}")
 
-    async def select_option(self, selector, value):
+    async def select_option(self, selector, value, frame_selector=None):
         from cloakbrowser_mcp.models import SelectResult
 
+        self.calls.append(("select_option", selector, value, frame_selector))
         return SelectResult(session_id="s1", values=[value])
 
     async def get_text(self, selector=None):
@@ -216,6 +220,27 @@ async def test_v2_tool_handlers_return_dicts():
 
 
 @pytest.mark.asyncio
+async def test_select_option_handler_forwards_frame_selector():
+    manager = FakeManager()
+    handlers = ToolHandlers(manager)
+
+    result = await handlers.browser_select_option(
+        "s1",
+        "select",
+        "medium",
+        frame_selector="iframe#iframeResult",
+    )
+
+    assert result["values"] == ["medium"]
+    assert manager.session.calls[-1] == (
+        "select_option",
+        "select",
+        "medium",
+        "iframe#iframeResult",
+    )
+
+
+@pytest.mark.asyncio
 async def test_browser_close_delegates_to_manager():
     manager = FakeManager()
     handlers = ToolHandlers(manager)
@@ -303,3 +328,13 @@ async def test_create_server_marks_snapshot_read_only_but_not_screenshot():
         "browser_new_page",
     ]:
         assert tools[name].annotations is None
+
+
+@pytest.mark.asyncio
+async def test_select_option_schema_includes_optional_frame_selector():
+    server = create_server(FakeManager())
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    schema = tools["browser_select_option"].inputSchema
+
+    assert "frame_selector" in schema["properties"]
+    assert "frame_selector" not in schema["required"]

@@ -1,5 +1,11 @@
 .DS_Store
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
 graphify-out/
 .worktrees
 .worktrees/
 .superpowers/
+
+dist/

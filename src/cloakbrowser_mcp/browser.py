@@ -236,9 +236,17 @@ class BrowserSession:
             raise ElementNotFound(f"Element not found for selector {selector!r} while hovering") from exc
         return OperationResult(ok=True, session_id=self.session_id)
 
-    async def select_option(self, selector: str, value: str) -> SelectResult:
+    async def select_option(
+        self,
+        selector: str,
+        value: str,
+        frame_selector: str | None = None,
+    ) -> SelectResult:
         try:
-            values = await self.page.select_option(selector, value)
+            if frame_selector is None:
+                values = await self.page.select_option(selector, value)
+            else:
+                values = await self.page.frame_locator(frame_selector).locator(selector).select_option(value)
         except (TimeoutError, PlaywrightTimeoutError) as exc:
             raise ElementNotFound(f"Element not found for selector {selector!r} while selecting option") from exc
         return SelectResult(session_id=self.session_id, values=list(values or []))
