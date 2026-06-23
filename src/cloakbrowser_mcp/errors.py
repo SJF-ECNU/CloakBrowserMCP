@@ -30,3 +30,11 @@ class ActionTimeout(BrowserMcpError):
 
 class ScreenshotFailed(BrowserMcpError):
     code = "ScreenshotFailed"
+
+
+class PageNotFound(BrowserMcpError):
+    code = "PageNotFound"
+
+
+class StorageStateFailed(BrowserMcpError):
+    code = "StorageStateFailed"

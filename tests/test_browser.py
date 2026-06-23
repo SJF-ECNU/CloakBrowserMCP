@@ -98,6 +98,9 @@ class FakePage:
         self.actions.append(("go_forward", wait_until))
         return None
 
+    async def close(self):
+        self.actions.append(("close",))
+
 
 class FakeClosable:
     def __init__(self, *, close_error=None):
@@ -141,12 +144,33 @@ class FakeDirectContext(FakeClosable):
         super().__init__()
         self.fail_new_page = fail_new_page
         self.new_page_calls = 0
+        self.pages = []
+        self.cookies_value = [{"name": "sid", "value": "123", "domain": "example.com", "path": "/"}]
+        self.added_cookies = []
+        self.cleared_cookies = False
 
     async def new_page(self):
         self.new_page_calls += 1
         if self.fail_new_page:
             raise RuntimeError("page failed")
-        return FakePage()
+        page = FakePage()
+        self.pages.append(page)
+        return page
+
+    async def cookies(self, urls=None):
+        return self.cookies_value
+
+    async def add_cookies(self, cookies):
+        self.added_cookies.extend(cookies)
+
+    async def clear_cookies(self):
+        self.cleared_cookies = True
+
+    async def storage_state(self, path=None):
+        state = {"cookies": self.cookies_value, "origins": []}
+        if path:
+            Path(path).write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+        return state
 
 
 class FakeCdpContext(FakeClosable):
@@ -335,6 +359,70 @@ async def test_session_get_links_rejects_non_int_limit_before_evaluate(tmp_path)
         await session.get_links(limit="2); window.evil = true; //")  # type: ignore[arg-type]
 
     assert page.actions == []
+
+
+@pytest.mark.asyncio
+async def test_session_context_state_methods(tmp_path):
+    context = FakeDirectContext()
+    page = await context.new_page()
+    session = BrowserSession("s1", page, context, None, tmp_path, "direct", "headless")
+
+    assert (await session.get_cookies()).cookies == context.cookies_value
+    assert (
+        await session.set_cookies([{"name": "token", "value": "abc", "domain": "example.com", "path": "/"}])
+    ).ok is True
+    assert context.added_cookies[0]["name"] == "token"
+    assert (await session.clear_cookies()).ok is True
+    assert context.cleared_cookies is True
+    assert (await session.get_storage_state()).state == {"cookies": context.cookies_value, "origins": []}
+
+    state_path = tmp_path / "state.json"
+    result = await session.save_storage_state(state_path)
+
+    assert result.path == str(state_path)
+    assert state_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_session_page_management(tmp_path):
+    context = FakeDirectContext()
+    first_page = await context.new_page()
+    session = BrowserSession("s1", first_page, context, None, tmp_path, "direct", "headless")
+
+    pages = await session.list_pages()
+    assert len(pages.pages) == 1
+    assert pages.pages[0]["is_active"] is True
+
+    new_page = await session.new_page(url="https://example.com/two", switch=True)
+    assert new_page.url == "https://example.com/two"
+    assert session.page.url == "https://example.com/two"
+
+    pages = await session.list_pages()
+    assert len(pages.pages) == 2
+    assert sum(1 for page_info in pages.pages if page_info["is_active"]) == 1
+
+    await session.switch_page(pages.pages[0]["page_id"])
+    assert session.page is first_page
+
+    result = await session.close_page(new_page.page_id)
+    assert result.ok is True
+    assert ("close",) in context.pages[1].actions
+
+
+@pytest.mark.asyncio
+async def test_session_close_active_page_selects_remaining_page(tmp_path):
+    context = FakeDirectContext()
+    first_page = await context.new_page()
+    session = BrowserSession("s1", first_page, context, None, tmp_path, "direct", "headless")
+    new_page = await session.new_page(url="https://example.com/two", switch=True)
+
+    result = await session.close_page(new_page.page_id)
+
+    assert result.ok is True
+    assert session.page is first_page
+    pages = await session.list_pages()
+    assert len(pages.pages) == 1
+    assert pages.pages[0]["is_active"] is True
 
 
 @pytest.mark.asyncio

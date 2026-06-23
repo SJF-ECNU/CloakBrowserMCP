@@ -193,6 +193,53 @@ class OperationResult:
 
 
 @dataclass(slots=True)
+class CookiesResult:
+    session_id: str
+    cookies: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class StorageStateResult:
+    session_id: str
+    state: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class StorageStateFileResult:
+    session_id: str
+    path: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class PageInfoResult:
+    session_id: str
+    page_id: str
+    url: str
+    title: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class PagesResult:
+    session_id: str
+    pages: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class TextResult:
     session_id: str
     text: str

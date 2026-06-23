@@ -10,18 +10,30 @@ from typing import Any
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .display import VirtualDisplayManager
-from .errors import CdpConnectionFailed, ElementNotFound, ScreenshotFailed, SessionNotFound
+from .errors import (
+    CdpConnectionFailed,
+    ElementNotFound,
+    PageNotFound,
+    ScreenshotFailed,
+    SessionNotFound,
+    StorageStateFailed,
+)
 from .models import (
     AttributeResult,
     BackendMode,
+    CookiesResult,
     LinksResult,
     OperationResult,
+    PageInfoResult,
     PageNavigationResult,
+    PagesResult,
     ScreenshotResult,
     SelectResult,
     SnapshotResult,
     StartOptions,
     StartResult,
+    StorageStateFileResult,
+    StorageStateResult,
     TextResult,
 )
 
@@ -76,11 +88,97 @@ class BrowserSession:
             or Path(tempfile.gettempdir()) / "cloakbrowser-mcp"
         )
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+        self._pages: dict[str, Any] = {}
+        self._active_page_id = self._register_page(page)
 
     async def navigate(self, url: str, wait_until: str = "load") -> dict[str, str]:
         await self.page.goto(url, wait_until=wait_until)
         title = await self.page.title()
         return {"session_id": self.session_id, "url": self.page.url, "title": title}
+
+    def _register_page(self, page: Any) -> str:
+        for page_id, known_page in self._pages.items():
+            if known_page is page:
+                return page_id
+        page_id = uuid.uuid4().hex
+        self._pages[page_id] = page
+        return page_id
+
+    def _get_page(self, page_id: str) -> Any:
+        try:
+            return self._pages[page_id]
+        except KeyError as exc:
+            available = ", ".join(sorted(self._pages)) or "none"
+            raise PageNotFound(f"Unknown page {page_id!r}; available pages: {available}") from exc
+
+    async def _page_info(self, page_id: str, page: Any) -> dict[str, Any]:
+        return {
+            "page_id": page_id,
+            "url": page.url,
+            "title": await page.title(),
+            "is_active": page is self.page,
+        }
+
+    async def get_cookies(self, urls: list[str] | None = None) -> CookiesResult:
+        cookies = await self.context.cookies(urls)
+        return CookiesResult(session_id=self.session_id, cookies=list(cookies or []))
+
+    async def set_cookies(self, cookies: list[dict[str, Any]]) -> OperationResult:
+        await self.context.add_cookies(cookies)
+        return OperationResult(ok=True, session_id=self.session_id)
+
+    async def clear_cookies(self) -> OperationResult:
+        await self.context.clear_cookies()
+        return OperationResult(ok=True, session_id=self.session_id)
+
+    async def get_storage_state(self) -> StorageStateResult:
+        state = await self.context.storage_state()
+        return StorageStateResult(session_id=self.session_id, state=state)
+
+    async def save_storage_state(self, path: str | Path) -> StorageStateFileResult:
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            await self.context.storage_state(path=str(output))
+        except Exception as exc:
+            raise StorageStateFailed(f"Failed to write storage state to {output}") from exc
+        return StorageStateFileResult(session_id=self.session_id, path=str(output))
+
+    async def new_page(self, url: str | None = None, switch: bool = True) -> PageInfoResult:
+        page = await self.context.new_page()
+        page_id = self._register_page(page)
+        if url is not None:
+            await page.goto(url, wait_until="load")
+        if switch:
+            self.page = page
+            self._active_page_id = page_id
+        return PageInfoResult(session_id=self.session_id, page_id=page_id, url=page.url, title=await page.title())
+
+    async def list_pages(self) -> PagesResult:
+        return PagesResult(
+            session_id=self.session_id,
+            pages=[await self._page_info(page_id, page) for page_id, page in self._pages.items()],
+        )
+
+    async def switch_page(self, page_id: str) -> PageInfoResult:
+        page = self._get_page(page_id)
+        self.page = page
+        self._active_page_id = page_id
+        return PageInfoResult(session_id=self.session_id, page_id=page_id, url=page.url, title=await page.title())
+
+    async def close_page(self, page_id: str | None = None) -> OperationResult:
+        target_page_id = page_id or self._active_page_id
+        page = self._get_page(target_page_id)
+        await page.close()
+        self._pages.pop(target_page_id, None)
+        if not self._pages:
+            new_page = await self.context.new_page()
+            new_page_id = self._register_page(new_page)
+            self.page = new_page
+            self._active_page_id = new_page_id
+        elif page is self.page:
+            self._active_page_id, self.page = next(iter(self._pages.items()))
+        return OperationResult(ok=True, session_id=self.session_id)
 
     async def click(self, selector: str) -> OperationResult:
         try:
