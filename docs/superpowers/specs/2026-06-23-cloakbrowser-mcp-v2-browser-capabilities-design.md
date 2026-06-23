@@ -67,7 +67,8 @@ v2 不实现以下内容：
 
 - 非持久 profile 使用 `launch_context_async(...)`。
 - 持久 profile 使用 `launch_persistent_context_async(profile_dir, ...)`。
-- `storage_state`、`extra_http_headers`、`permissions` 作为 context kwargs 透传。
+- 非持久 context 支持 `storage_state`、`extra_http_headers`、`permissions` 作为 context kwargs 透传。
+- 持久 profile 使用 `profile_dir` 恢复浏览器状态，不接受 `storage_state`。如果同时传入 `profile_dir` 和 `storage_state`，服务应返回参数错误，避免把 Playwright 不支持的参数传给 persistent context。
 - `viewport` 只在用户传入时透传；`no_viewport=True` 时向 CloakBrowser 传 `viewport=None`，明确关闭 viewport emulation。这样避免 MCP 入参无法稳定区分“未传 viewport”和“显式传 null”的问题。
 - `args`、`extension_paths`、`stealth_args`、`geoip`、`human_preset`、`human_config` 作为 CloakBrowser 启动参数透传。
 
