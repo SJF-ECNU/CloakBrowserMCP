@@ -327,6 +327,31 @@ async def test_session_get_links_limits_results(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_session_get_links_rejects_non_int_limit_before_evaluate(tmp_path):
+    page = FakePage()
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    with pytest.raises(ValueError, match="limit"):
+        await session.get_links(limit="2); window.evil = true; //")  # type: ignore[arg-type]
+
+    assert page.actions == []
+
+
+@pytest.mark.asyncio
+async def test_session_scroll_rejects_non_int_deltas_before_evaluate(tmp_path):
+    page = FakePage()
+    session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")
+
+    with pytest.raises(ValueError, match="delta_x"):
+        await session.scroll(delta_x="0); window.evil = true; //", delta_y=500)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="delta_y"):
+        await session.scroll(delta_x=0, delta_y="500); window.evil = true; //")  # type: ignore[arg-type]
+
+    assert page.actions == []
+
+
+@pytest.mark.asyncio
 async def test_session_screenshot_writes_unique_file(tmp_path):
     page = FakePage()
     session = BrowserSession("s1", page, FakeClosable(), None, tmp_path, "direct", "headless")

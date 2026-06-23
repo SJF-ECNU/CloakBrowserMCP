@@ -39,6 +39,12 @@ async def _run_cleanup_steps(*steps: tuple[bool, Any]) -> Exception | None:
     return first_error
 
 
+def _require_int(name: str, value: Any) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{name} must be an integer")
+    return value
+
+
 class BrowserSession:
     def __init__(
         self,
@@ -145,6 +151,7 @@ class BrowserSession:
         return AttributeResult(session_id=self.session_id, value=value)
 
     async def get_links(self, selector: str | None = None, limit: int = 50) -> LinksResult:
+        safe_limit = _require_int("limit", limit)
         selector_json = json.dumps(selector)
         script = f"""() => {{
             const selector = {selector_json};
@@ -154,14 +161,16 @@ class BrowserSession:
                 return root.matches && root.matches('a') ? [root, ...nested] : nested;
             }});
             return Array.from(new Set(anchors))
-                .slice(0, {limit})
+                .slice(0, {safe_limit})
                 .map((el) => ({{text: el.innerText || el.textContent || '', href: el.href || ''}}));
         }}"""
         links = await self.page.evaluate(script)
-        return LinksResult(session_id=self.session_id, links=list(links or [])[:limit])
+        return LinksResult(session_id=self.session_id, links=list(links or [])[:safe_limit])
 
     async def scroll(self, delta_x: int = 0, delta_y: int = 0) -> OperationResult:
-        await self.page.evaluate(f"() => window.scrollBy({delta_x}, {delta_y})")
+        safe_delta_x = _require_int("delta_x", delta_x)
+        safe_delta_y = _require_int("delta_y", delta_y)
+        await self.page.evaluate(f"() => window.scrollBy({safe_delta_x}, {safe_delta_y})")
         return OperationResult(ok=True, session_id=self.session_id)
 
     async def reload(self, wait_until: str = "load") -> PageNavigationResult:
