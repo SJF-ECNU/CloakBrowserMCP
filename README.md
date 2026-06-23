@@ -14,6 +14,15 @@ The server exposes browser automation tools over MCP stdio, so clients such as
 Claude Code can start a session, navigate, inspect pages, interact with forms,
 manage cookies/storage, and work with multiple tabs.
 
+## Upstream
+
+This project is an MCP wrapper and agent-facing extension built on top of
+[CloakHQ/CloakBrowser](https://github.com/CloakHQ/CloakBrowser). CloakBrowser
+provides the underlying browser launch and anti-detection automation layer; this
+repository adds the MCP server, tool schema, session lifecycle, Linux
+headless/virtual-display deployment flow, tests, and agent-oriented
+documentation around it.
+
 ## Features
 
 - 28 MCP tools for browser sessions, page interaction, cookies, storage state,
@@ -67,7 +76,7 @@ uv sync --extra dev --no-editable
 
 The project depends on:
 
-- `cloakbrowser>=0.4,<1`
+- [`cloakbrowser>=0.4,<1`](https://github.com/CloakHQ/CloakBrowser)
 - `mcp[cli]>=1.28,<2`
 - `pyvirtualdisplay>=3,<4`
 
