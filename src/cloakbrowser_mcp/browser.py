@@ -146,13 +146,18 @@ class BrowserSession:
 
     async def new_page(self, url: str | None = None, switch: bool = True) -> PageInfoResult:
         page = await self.context.new_page()
+        try:
+            if url is not None:
+                await page.goto(url, wait_until="load")
+            title = await page.title()
+        except Exception:
+            await _run_cleanup_steps((True, page.close))
+            raise
         page_id = self._register_page(page)
-        if url is not None:
-            await page.goto(url, wait_until="load")
         if switch:
             self.page = page
             self._active_page_id = page_id
-        return PageInfoResult(session_id=self.session_id, page_id=page_id, url=page.url, title=await page.title())
+        return PageInfoResult(session_id=self.session_id, page_id=page_id, url=page.url, title=title)
 
     async def list_pages(self) -> PagesResult:
         return PagesResult(

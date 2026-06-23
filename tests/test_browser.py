@@ -23,9 +23,12 @@ class FakePage:
         self.fail_screenshot = False
         self.closed = False
         self.close_error = None
+        self.goto_error = None
 
     async def goto(self, url, wait_until="load"):
         self.actions.append(("goto", url, wait_until))
+        if self.goto_error is not None:
+            raise self.goto_error
         self.url = url
 
     async def title(self):
@@ -418,6 +421,33 @@ async def test_session_page_management(tmp_path):
     result = await session.close_page(new_page.page_id)
     assert result.ok is True
     assert ("close",) in context.pages[1].actions
+
+
+@pytest.mark.asyncio
+async def test_session_new_page_navigation_failure_cleans_unregistered_page(tmp_path):
+    context = FakeDirectContext()
+    first_page = await context.new_page()
+    session = BrowserSession("s1", first_page, context, None, tmp_path, "direct", "headless")
+    original_page_id = session._active_page_id
+    original_pages = dict(session._pages)
+
+    failed_page = FakePage()
+    failed_page.goto_error = RuntimeError("navigation failed")
+
+    async def new_failed_page():
+        context.new_page_calls += 1
+        context.pages.append(failed_page)
+        return failed_page
+
+    context.new_page = new_failed_page
+
+    with pytest.raises(RuntimeError, match="navigation failed"):
+        await session.new_page(url="https://example.com/fail", switch=True)
+
+    assert session._pages == original_pages
+    assert session._active_page_id == original_page_id
+    assert session.page is first_page
+    assert failed_page.closed is True
 
 
 @pytest.mark.asyncio
